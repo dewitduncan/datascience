@@ -1,0 +1,486 @@
+---
+title: "Assignment 4"
+author: "Duncan de Wit"
+date: "2020.04.28 09:00 AM"
+output:
+  pdf_document:
+    keep_tex: true
+header-includes:
+   - \usepackage{dcolumn}    
+---
+\newpage
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, include = FALSE}
+remove(list=ls())
+cat("\f")
+
+library(openxlsx)
+library(data.table)
+library(psych)
+library(stargazer)
+library(plyr)
+library(randomForest)
+library(MASS)
+
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(class)  
+library(ROCR)
+library(cluster)
+library(ape)
+library(rpart)
+library(rpart.plot)
+library(mclust)
+
+library(jsonlite)
+library(stringr)
+library(arules)
+library(arulesViz)
+library(reshape2)
+library(e1071)
+
+library(scales)
+
+dir <- "C:/Users/Julie/Documents/02. BIM/BDBA/Assignment 4/"
+dirData <- paste0(dir, "Data/")
+dirRslt <- paste0(dir, "Results/")
+dirProg <- paste0(dir, "Programs/")
+
+setwd(dir)
+```
+## Question 1
+Download the data on COVID-19 cases across countries into R that is provided at https://pomber.github.io/covid19/timeseries.json. Extract the time-series data for the Netherlands, Germany, France, Italy, Spain, United Kingdom, Sweden and Poland, and combine them into one single data frame. Add to the data frame a column specifying the country of each observation. Generate a plot showing the development of the number of confirmed COVID-19 cases over time from January until April per country. Generate one plot showing the raw number of confirmed cases and another showing the number of confirmed cases per country on a logarithmic (base 10) scale. (1 point)
+
+```{r q1}
+# Download the data on COVID-19 cases across countries
+jsonCovidQ1 <- fromJSON("https://pomber.github.io/covid19/timeseries.json")
+
+# Extract the time-series data for the Netherlands, Germany, France, Italy, 
+# Spain, United Kingdom, Sweden and Poland, and combine them into one 
+# single data frame
+dfCovid_Select <- rbind(jsonCovidQ1[['Netherlands']],
+                                  jsonCovidQ1[['Germany']],
+                                  jsonCovidQ1[['France']],
+                                  jsonCovidQ1[['Italy']],
+                                  jsonCovidQ1[['Spain']],
+                                  jsonCovidQ1[['United Kingdom']],
+                                  jsonCovidQ1[['Sweden']],
+                                  jsonCovidQ1[['Poland']])
+
+# Add to the data frame a column specifying the country of each observation.
+dfCovid_Select$country[1:768] <- "Netherlands"
+dfCovid_Select$country[97:192] <- "Germany"
+dfCovid_Select$country[193:288] <- "France"
+dfCovid_Select$country[289:384] <- "Italy"
+dfCovid_Select$country[385:480] <- "Spain"
+dfCovid_Select$country[481:576] <- "United Kingdom"
+dfCovid_Select$country[577:672] <- "Sweden"
+dfCovid_Select$country[673:768] <- "Poland"
+
+# Column 'date' from character to POSIX
+dfCovid_Select$date <- as.POSIXct(dfCovid_Select$date)
+
+# Generate one plot showing the raw number of confirmed cases
+ggplot(dfCovid_Select, aes(x=date, y=confirmed, colour=country)) +
+   geom_line(size=1) +
+   labs(title="Number of COVID-19 cases per country", 
+        y="Raw number of confirmed cases",
+        x="Date") +
+   scale_x_datetime(breaks="7 days", date_labels="%B-%d") +
+   scale_color_brewer("Country", palette="Set1") +
+   theme(axis.text.x = element_text(angle=45,  hjust=1))
+
+# And another showing the number of confirmed cases per country on a
+# logarithmic (base 10) scale
+ggplot(dfCovid_Select, aes(x=date, y=confirmed, colour=country)) +
+   geom_line(size=1) +
+   labs(title="Number of COVID-19 cases per country on logarithmic scale", 
+        y="Confirmed cases on logarithmic scale",
+        x="Date") +
+   scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                 labels = trans_format("log10", math_format(10^.x))) +
+   scale_x_datetime(breaks="7 days", date_labels="%B-%d") +
+   scale_color_brewer("Country", palette="Set1") +
+   theme(axis.text.x = element_text(angle=45,  hjust=1))
+
+```
+
+
+## Question 2
+For each country specified above, collect data on daily average temperatures  from  January  to  April  2020  using  the  API  provided  at https://api.meteostat.net. You will have to search for the IDs of weather stations (you can use each country’s capital city as a reference) and then use the API to download the daily temperatures. Generate a plot showing the average daily temperature per country. (1 point)
+
+```{r q2}
+# For each capital of Netherlands, Germany, France, Italy, 
+# Spain, United Kingdom, Sweden and Poland, collect data on daily 
+# average temperatures  from  January  to  April  2020
+weatherAMS <- fromJSON("https://api.meteostat.net/v1/history/daily?station=06260&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherBER <- fromJSON("https://api.meteostat.net/v1/history/daily?station=D0400&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherPAR <- fromJSON("https://api.meteostat.net/v1/history/daily?station=07157&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherROM <- fromJSON("https://api.meteostat.net/v1/history/daily?station=16242&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherMAD <- fromJSON("https://api.meteostat.net/v1/history/daily?station=08227&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherLON <- fromJSON("https://api.meteostat.net/v1/history/daily?station=03772&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherSTO <- fromJSON("https://api.meteostat.net/v1/history/daily?station=ESKN0&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+weatherWAR <- fromJSON("https://api.meteostat.net/v1/history/daily?station=12375&start=2020-01-22&end=2020-04-23&key=uK9615bw")
+
+# Convert list with data to data frame
+dfAMS <- as.data.frame(weatherAMS[['data']])
+dfBER <- as.data.frame(weatherBER[['data']])
+dfPAR <- as.data.frame(weatherPAR[['data']])
+dfROM <- as.data.frame(weatherROM[['data']])
+dfMAD <- as.data.frame(weatherMAD[['data']])
+dfLON <- as.data.frame(weatherLON[['data']])
+dfSTO <- as.data.frame(weatherSTO[['data']])
+dfWAR <- as.data.frame(weatherWAR[['data']])
+
+# Combine all data frames to one data frame
+dfTemp_Select <- rbind(dfAMS, dfBER, dfPAR, dfROM, dfMAD, dfLON, dfSTO, dfWAR)
+
+# Add to the data frame a column specifying the country of each observation.
+dfTemp_Select$country[1:93] <- "Netherlands"
+dfTemp_Select$country[94:186] <- "Germany"
+dfTemp_Select$country[187:279] <- "France"
+dfTemp_Select$country[280:372] <- "Italy"
+dfTemp_Select$country[373:465] <- "Spain"
+dfTemp_Select$country[466:558] <- "United Kingdom"
+dfTemp_Select$country[559:651] <- "Sweden"
+dfTemp_Select$country[652:744] <- "Poland"
+
+# Column 'date' from character to POSIX
+dfTemp_Select$date <- as.POSIXct(dfTemp_Select$date)
+
+# Generate a plot showing the average daily temperature per country.
+ggplot(dfTemp_Select, aes(x=date, y=temperature, colour=country)) +
+  geom_line(size=1) +
+  labs(title="Average daily temperature per country", 
+        y="Temperature in Celsius",
+        x="Date") +
+  scale_x_datetime(breaks="7 days", date_labels="%B-%d") +
+  scale_color_brewer("Country", palette="Set1") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+
+```
+
+
+## Question 3
+Merge the temperature data and the dataset of COVID-19 cases. You will have to generate a variable in both datasets that uniquely identifies each observation and that is the same in both datasets, e.g. *Netherlands 2020-01-22* and then use the *merge()* function in R. Generate a scatter plot plotting the daily temperature against the number of confirmed COVID-19 cases, one plot with the raw number of cases and one with the logarithmic (base 10) number of cases. (2 points)
+
+```{r q3}
+# Generate a variable in both datasets that uniquely identifies each
+# observation and that is the same in both datasets
+dfCovid_New <- transform(dfCovid_Select, ID=paste(country, date, sep=" "))
+dfTemp_New <- transform(dfTemp_Select, ID=paste(country, date, sep=" "))
+
+# Merge the temperature data and the dataset of COVID-19 cases
+dfCovidTemp <- merge(dfCovid_New, dfTemp_New, by = "ID")
+
+# Generate a scatter plot plotting the daily temperature against the 
+# raw number of confirmed COVID-19 cases
+ggplot(dfCovidTemp, aes(x=temperature, y=confirmed)) +
+  geom_point() +
+  geom_smooth(method = lm) +
+  labs(title="Daily temperature and COVID-19 cases in eight EU countries",
+       y="Raw number of confirmed COVID-19 cases",
+       x="Temperature in Celsius")
+
+# Generate a scatter plot plotting the daily temperature against the 
+# logarithmic (base 10) number of confirmed COVID-19 cases
+ggplot(dfCovidTemp, aes(x=temperature, y=confirmed)) +
+  geom_point() +
+  geom_smooth(method = lm) +
+  labs(title="Daily temperature and COVID-19 cases in eight EU countries",
+       y="Raw number of confirmed COVID-19 cases",
+       x="Temperature in Celsius") +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                 labels = trans_format("log10", math_format(10^.x)))
+
+``` 
+
+
+## Question 4
+
+Run a linear regression analysis predicting the logarithmic number of cases using the daily temperature in a country and interpret the results. Obviously, this kind of analysis is too rudimentary to provide meaningful evidence into whether weather conditions influence the spread of COVID-19. Explain briefly how this analysis could be improved. (1 point)
+
+```{r q4}
+# Run a linear regression analysis predicting the logarithmic number of cases # using the daily temperature in a country
+
+# Step 1: It is impossible to calculate log(0), so add a small constant of 1
+# to the column confirmed
+dfCovidTemp_New <- dfCovidTemp %>%
+  mutate_at(c("confirmed"), funs(confirmed = confirmed + 1))
+
+# Step 2: Define  model  specifications
+mdlQ4 <- log(confirmed) ~ temperature
+
+# Step 3: Estimate  models  and  store  results
+rsltQ4 <- lm(mdlQ4, data = dfCovidTemp_New)
+
+# Step 4: Make predictions (within  sample)
+predQ4 <- predict(rsltQ4, dfCovidTemp)
+
+```
+```{r q4 table, results = 'asis'}
+stargazer(rsltQ4, title = "Linear regression results COVID-19",
+          align = TRUE, no.space = TRUE, summary = FALSE)
+```
+
+Add text and interpretation based on: https://data.library.virginia.edu/interpreting-log-transformations-in-a-linear-model/ 
+
+
+## Question 5
+Load the data. Notice that some of the text-strings with in the *file.name* variable are of the form ‘enron1/spam/XXX.GP.spam.txt’. These are e-mails from the spam-folder of the employee. Convert all character data to lower case. Using string manipulation, construct a new variable that indicates whether a *file.name* includes the string ‘spam’. This variable will be used to classify e-mails as spam. (0.5 point)
+
+```{r q5, results='hide'}
+# Load the data and delete the first row with the variable 'X' (Row ID)
+dfEnronMails <- read.csv(paste0(dirData, "Enron_email_prepared.csv"),
+                         row.names=1, sep=";", stringsAsFactors = FALSE)
+
+# Inspect the data
+head(dfEnronMails)
+tail(dfEnronMails)
+summary(dfEnronMails)
+str(dfEnronMails)
+colSums(is.na(dfEnronMails))
+
+# Convert all character data to lower case
+dfEnronMails_lc <- mutate_all(dfEnronMails, .funs=tolower)
+
+# Construct a new variable that indicates whether a *file.name* 
+# includes the string ‘spam’ (1 = includes spam)
+dfEnronMails_lc$spam <- ifelse(grepl("spam", dfEnronMails_lc$file.name),
+                               "1", "0")
+
+```
+
+
+## Question 6 
+Calculate the conditional probability distributions *P(prescription|spam)* and *P(enron|spam)* where *prescription* indicates that the text of an e-mail contains the word ‘prescription’, *enron* indicates that the text of an e-mail contains the word ‘enron’, and *spam* indicates that an e-mail is classified as spam. (0.5 point)
+
+```{r q6}
+# Construct a new variable that indicates whether a *text.mail* 
+# includes the string ‘prescription’ (1 = includes spam)
+dfEnronMails_lc$prescr <- ifelse(grepl("prescription", 
+                                       dfEnronMails_lc$text.mail),"1", "0")
+
+# Construct a new variable that indicates whether a *text.mail* 
+# includes the string ‘enron’ (1 = includes spam)
+dfEnronMails_lc$enron <- ifelse(grepl("enron", 
+                                      dfEnronMails_lc$text.mail),"1", "0")
+
+# Count number of emails which are classified as spam
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1",])
+
+# Count number of emails which are classified as spam and 
+# contain the string 'prescription'
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$prescr == "1" ,])
+
+# Count number of emails which are classified as spam and 
+# contain the string 'enron'
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$enron == "1" ,])
+
+```
+
+The following numbers are needed to calculate the conditional probability distributions *P(prescription|spam)* and *P(enron|spam)*.
+
+- 1388 out of 4768 e-mails are marked as spam
+- 109 out of 1388 e-mails marked as spam contain the word 'prescription'
+- 0 out of 1388 e-mails marked as spam contain the word 'enron'
+
+Conditional probability:
+$P(prescription|spam) = 109/1388 = 0.0785$ 
+$P(enron|spam) = 0/1388 = 0$
+
+
+## Question 7
+According to the Naive Bayes model, what is the probability that an email containing the word ‘prescription’, but not the word ‘enron’, is spam? What is the probability that an email containing the word ‘enron’, but not the word ‘prescription’, is spam? Show all of your calculation steps. You can assume strict independence in your calculations. (2 points)
+
+```{r q7}
+# 1st Calculation
+
+# Count number of emails which contain the word 'prescription' and 
+# does not contain the word 'enron' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$enron == "0" &
+                       dfEnronMails_lc$prescr == "1",])
+
+
+
+# Count number of emails which are classified as spam, 
+# contains the word 'prescription' and does not contain the word 'enron' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$prescr == "1" &
+                       dfEnronMails_lc$enron == "0",])
+
+# 2nd calculation:
+
+# Count number of emails which contain the word 'enron' and 
+# does not contain the word 'prescription' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$enron == "1" &
+                       dfEnronMails_lc$prescr == "0",])
+
+# Count number of emails which are classified as spam, 
+# contains the word 'enron' and does not contain the word 'prescription' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$enron == "1" &
+                       dfEnronMails_lc$prescr == "0",])
+
+```
+
+The following numbers are needed to calculate the probabilities:
+- 1388 out of 4768 e-mails are marked as spam (see question 6)
+
+- 110 out of 4768 e-mails contain the word 'prescription' and does not contain the word 'enron'
+- 1370 out of 4768 e-mails contain the word 'enron' and does not contain the word 'prescription'
+
+- 109 out of 1388 e-mails marked as spam contain the word 'prescription' and does not contain the word 'enron'
+- 0 out of 1388 e-mails marked as spam contain the word 'enron' and does not contain the word 'prescription'
+
+Strict independence formula:
+$P(class|evidence) = (P(evidence|class) / P(evidence)) * P(class)$ 
+
+**1. The probability that an email containing the word ‘prescription’, but not the word ‘enron’, is spam = 0.9892**
+
+Step 1.1 'define class and evidence':
+- Class = spam
+- Evidence = contains the word 'prescription' but not the word 'enron'
+
+Step 1.2 'calculate the parts':
+$P(evidence|class) = P(prescription.and.not.enron|spam) = 109/1388 = 0.0785$
+$P(evidence) = P(prescription.and.not.enron) = 110/4768 = 0.0231$
+$P(class) = P(spam) = 1388/4768 = 0.2911$
+
+Step 1.3 'fill in the parts to calculate the whole':
+$P(class|evidence) = P(spam|prescription.and.not.enron) =$
+$(0.0785/0.0231)*0.2911 = 0.9892$
+
+**2. The probability that an email contains the word ‘enron’, but not the word ‘prescription’, is spam = 0**
+
+Step 2.1 'define class and evidence':
+- Class = spam
+- Evidence = contains the word 'enron' but not the word 'prescription'
+
+Step 2.2 'calculate the parts':
+$P(evidence|class) = P(enron.and.not.prescription|spam) = 0/1388 = 0$
+$P(evidence) = P(enron.and.not.prescription) = 1370/4768 = 0.2873$
+$P(class) = P(spam) = 1388/4768 = 0.2911$
+
+Step 2.3 'fill in the parts to calculate the whole':
+$P(class|evidence) = P(spam|enron.and.not.prescription) =$
+$(0/0.2873)*0.2911 = 0$
+
+
+## Question 8
+Create five separate variables that indicate whether the text of an e-mail includes the words ‘enron’, ‘subject’, ‘please’, ‘farmer’, and ‘daren’, some of the most common words in normal e-mails at Enron, and five other variables that indicate whether the text of an e-mail contains the words ‘prescription’, ‘com’, ‘money’, ‘free’, and ‘viagra’, some of the most common words in spam messages. 
+Do a co-occurrence analysis using the *arules* and *arulesViz* packages in R for spam and non-spam messages separately. Output the learned rules and plot the scatter plot of confidence, the grouped plot, and the graph plot. Interpret the results. (Hint: Before using the *apriori* command you have to convert your data frame into an object of class *transactions* using the command *as(. . . , transactions)*). (2 points)
+
+```{r q8 spam}
+# Create five separate variables that indicate whether the text of an e-mail
+# includes the words ‘enron’, ‘subject’, ‘please’, ‘farmer’, and ‘daren’
+# Note: A variable for 'enron' was already created in Q6
+dfEnronMails_lc$subject <- ifelse(grepl("subject",
+                                        dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$please <- ifelse(grepl("please",
+                                       dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$farmer <- ifelse(grepl("farmer",
+                                       dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$daren <- ifelse(grepl("daren",
+                                      dfEnronMails_lc$text.mail),"1", "0")
+
+
+# Create five other variables that indicate whether the text of an e-mail
+# contains the words ‘prescription’, ‘com’, ‘money’, ‘free’, and ‘viagra’
+# Note: A variable for 'prescription' was already created in Q6
+dfEnronMails_lc$com <- ifelse(grepl("com",
+                                    dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$money <- ifelse(grepl("money",
+                                      dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$free <- ifelse(grepl("free",
+                                     dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$viagra <- ifelse(grepl("viagra",
+                                       dfEnronMails_lc$text.mail),"1", "0")
+
+# Data set preparation: remove redundant columns
+dfMailsQ8 <- dfEnronMails_lc[,3:13]
+
+# Dataset preparation: create dataset for spam messages 
+# and delete 'spam' variable
+dfMailsQ8_spam <- subset(dfMailsQ8, spam == "1")
+dfSpamQ8 <- dfMailsQ8_spam[,2:11]
+
+# Dataset preparation: create dataset for non-spam messages
+# and delete 'spam' variable
+dfMailsQ8_nonspam <- subset(dfMailsQ8, spam == "0")
+dfNonSpamQ8 <- dfMailsQ8_nonspam[,2:11]
+
+# Dataset preparation: convert data frames into class transactions
+trSpamQ8 <- as(dfSpamQ8, "transactions")
+trNonSpamQ8 <- as(dfNonSpamQ8, "transactions")
+
+# Step 1.1: Perform a co-occurrence analysis for spam messages 
+myRulesSpamQ8 <- apriori(trSpamQ8,
+                         parameter = list(support=0.01, confidence=0.1,
+                                          minlen=2, maxlen = 3,
+                                          target="rules"))
+
+# Step 1.2: Output the learned rules 
+summary(myRulesSpamQ8)
+inspect(head(sort(myRulesSpamQ8, by ="lift"),8))
+```
+```{r q8 plot spam}
+# Step 1.3: Plot the scatter plot of confidence, the grouped plot, 
+# and the graph plot
+plot(myRulesSpamQ8, cex=1)
+plot(myRulesSpamQ8, method = "grouped")
+subRulesSpamQ8 <- head(sort(myRulesSpamQ8, by = "lift"), 15)
+plot(subRulesSpamQ8, method = "graph")
+```
+```{r q8 non spam}
+# Step 2.1: Perform a co-occurrence analysis for non-spam messages
+myRulesNonSpamQ8 <- apriori(trNonSpamQ8,
+                            parameter = list(support=0.01, confidence=0.1,
+                                             minlen=2, maxlen = 3,
+                                             target="rules"))
+
+# Step 2.2: Output the learned rules 
+summary(myRulesNonSpamQ8)
+inspect(head(sort(myRulesNonSpamQ8, by ="lift"),8))
+```
+```{r q8 plot non spam}
+# Step 2.3: Plot the scatter plot of confidence, the grouped plot, 
+# and the graph plot
+plot(myRulesNonSpamQ8, cex=1)
+plot(myRulesNonSpamQ8, method = "grouped")
+subRulesNonSpamQ8 <- head(sort(myRulesNonSpamQ8, by = "lift"), 15)
+plot(subRulesNonSpamQ8, method = "graph")
+
+```
+
+The support means the frequency to which a certain co-occurence occurs in the whole dataset, the lift entails the extent to which the evidence/ rule updates the prior belief and the confidence illustrates how informative the left part of the rule (lhs column) is for the right part of the rule (rhs column).
+
+**Interpretation spam analysis**
+- The output of the spam rules show that the first two rules have the highest lift with a lift above 7. For instance, according to the first rule this means that the probability that the word 'viagra' will occur given that the words 'prescription' and 'com' are present is 8.3 times higher than the probability of the words occuring independent from each other.
+- These first two rules have a support of 0.0223, which means that the combination occurs in 2.23% of all spam emails. The same support level which also signals that the combinations occur equally. This is common-sense, since the first two rules contain the same three words: 'prescription', 'com' and 'viagra'.
+- Furthermore, the support shows that only three unique combinations are included in the first 8 rules sorted by lift, since there are only three unique support levels. These combinations contain the words (1) 'prescription', 'com' and 'viagra'; (2) 'prescription' and 'viagra' without the word 'free'; (3) 'prescription' and 'viagra' without the word 'farmer' or 'daren'. This shows that the words 'viagra' and 'prescription' have a high relatively high value for the spam filter based on the first eight rules sorted by lift.
+- Lastly, the confidence shows that given the words 'viagra' and 'com' occur, the word 'prescription' will occur (rule 2) in 55% of spam e-mails.
+
+- We would prefer rules with a high confidence and support (upper right corner of the scatter plot), but the scatter plot shows that these rules do not have a high lift. Furthermore, the scatter plot confirms that the rules with a high lift have a, on average, relatively high confidence level but a low support level.
+- The grouped matrix could inform us graphically about the support and lift level of new rules, but this grouped matrix is impossible to interpret since there are too many rules. This makes the plot too small to derive meaningful insights.
+- The graph plot shows how different words are connected to each other based on their support and lift level. The most meaningful insight from this plot is that the words 'viagra' and 'prescription' are at the center of almost every combination. This confirms the conclusion that these two words are very valuable for a spam filter.
+
+**Interpretation non-spam analysis**
+- The output of the non-spam rules show that the first three rules have the highest lift with a lift above 4. For instance, according to the first rule this means that the probability that the word 'farmer' will occur given that the words 'enron' and 'daren' are present is 4.5 times higher than the probability of the words occuring independent from each other.
+- From these first three rules, the aforementioned example of the first rule, occurs the most (highest support) with 12% of all non-spam e-mails. However, the 7th rule (probability that the word 'daren' will occur given that the word 'farmer' occurs and the word 'free' does not occur) occus slightly more often in 15% of all non-spam cases from the first eight rules sorted by lift.
+- The confidence shows that given the word 'farmer' occurs and the word 'com' does not occur, the word 'daren' will occur (rule 4) in 97% of non-spam cases. Furthermore, seven out of the 8 rules (sorted by lift) have a confidence over 80%. This confidence level is relatively high. 
+
+- We would prefer rules with a high confidence and support (upper right corner of the scatter plot), but the scatter plot shows that these rules do not have a high lift. Furthermore, the scatter plot confirms that the rules with a high lift have a moderate confidence level and low support.
+- The grouped matrix could inform us graphically about the support and lift level of new rules, but this grouped matrix is impossible to interpret since there are too many rules. This makes the plot too small to derive meaningful insights.
+- The graph plot shows how different words are connected to each other based on their support and lift level. The most meaningful insight from this plot is that the words 'farmer' and 'daren' are at the center of almost every combination. Furthermore, the words 'com' and 'enron' seem to cause a higher lift level when they are combined with the words 'farmer' and 'daren'. This confirms our conclusion from the analysis of the eight rules with the highest lift.

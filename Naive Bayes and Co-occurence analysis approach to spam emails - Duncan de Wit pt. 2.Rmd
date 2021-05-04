@@ -1,0 +1,331 @@
+---
+title: "Assignment 4 part 2 (explained on next page)"
+author: "Duncan de Wit"
+date: "2020.04.28 09:00 AM"
+output:
+  pdf_document:
+    keep_tex: true
+header-includes:
+   - \usepackage{dcolumn}    
+---
+\newpage
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, include = FALSE}
+remove(list=ls())
+cat("\f")
+
+library(openxlsx)
+library(data.table)
+library(psych)
+library(stargazer)
+library(plyr)
+library(randomForest)
+library(MASS)
+
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(class)  
+library(ROCR)
+library(cluster)
+library(ape)
+library(rpart)
+library(rpart.plot)
+library(mclust)
+
+library(jsonlite)
+library(stringr)
+library(arules)
+library(arulesViz)
+library(reshape2)
+library(e1071)
+
+library(scales)
+
+dir <- "C:/Users/Julie/Documents/02. BIM/BDBA/Assignment 4/"
+dirData <- paste0(dir, "Data/")
+dirRslt <- paste0(dir, "Results/")
+dirProg <- paste0(dir, "Programs/")
+
+setwd(dir)
+```
+
+**Note:** The API of the weather stations was unable to communicate with R due to an error (*Error in open.connection(con, "rb") : HTTP error 503.*) the next day. Luckily, I knitted the first part of the document yesterday when the API did work. Therefore, I chose to merge the pdf's of the two parts, since I would otherwise have to change all the code of the first part. I included the second front page to make sure that this note is noticed and Question 4 is not graded based on the short comment and URL. Please only grade Question 4 based on the interpretation below.
+
+## Question 4 (interpretation)
+Run a linear regression analysis predicting the logarithmic number of cases using the daily temperature in a country and interpret the results. Obviously, this kind of analysis is too rudimentary to provide meaningful evidence into whether weather conditions influence the spread of COVID-19. Explain briefly how this analysis could be improved. (1 point)
+
+The results of table 1 show that the constant is 1.763 and the coefficient for the *temperature* is 0.503 for the linear regression of the dependent variable *log(confirmed)*. This would result in the regression formula:
+
+$log(confirmed) = 1.763 + 0.503*temperature + e$
+
+The systemic part of the model is harder to interpret since the dependent variable is log-transformed. A log-transformed dependent variable implies our simple linear model has been exponentiated. This means that to interpret the slope value we need to exponentiate it.
+```{r calc} 
+x <- exp(0.503)
+x
+percent <- (x-1)*100
+percent
+```
+Thus, for, on average, a one unit Celsius increase in the average daily temperature (*temperature*), the number of corona patients increases, on average, by 65.37%. This shows correlation but not causality, since it is based on a regression analysis of historical data. 
+
+Obviously, this kind of analysis is too rudimentary to provide meaningful evidence into whether weather conditions influence the spread of COVID-19, since there is only one independent variable included. The analysis could be improved by adding more explanatory variables (for example: amount of pollen in the air, humidity etc.) and control variables (scientific constant) to see if the correlation is not spurious. Furthermore, more data of a period/ country with a decline in average temperatures is needed to see if the correlation is not spurious.
+
+
+## Question 5
+Load the data. Notice that some of the text-strings with in the *file.name* variable are of the form ‘enron1/spam/XXX.GP.spam.txt’. These are e-mails from the spam-folder of the employee. Convert all character data to lower case. Using string manipulation, construct a new variable that indicates whether a *file.name* includes the string ‘spam’. This variable will be used to classify e-mails as spam. (0.5 point)
+
+```{r q5, results='hide'}
+# Load the data and delete the first row with the variable 'X' (Row ID)
+dfEnronMails <- read.csv(paste0(dirData, "Enron_email_prepared.csv"),
+                         row.names=1, sep=";", stringsAsFactors = FALSE)
+
+# Inspect the data
+head(dfEnronMails)
+tail(dfEnronMails)
+summary(dfEnronMails)
+str(dfEnronMails)
+colSums(is.na(dfEnronMails))
+
+# Convert all character data to lower case
+dfEnronMails_lc <- mutate_all(dfEnronMails, .funs=tolower)
+
+# Construct a new variable that indicates whether a *file.name* 
+# includes the string ‘spam’ (1 = includes spam)
+dfEnronMails_lc$spam <- ifelse(grepl("spam", dfEnronMails_lc$file.name),
+                               "1", "0")
+
+```
+
+
+## Question 6 
+Calculate the conditional probability distributions *P(prescription|spam)* and *P(enron|spam)* where *prescription* indicates that the text of an e-mail contains the word ‘prescription’, *enron* indicates that the text of an e-mail contains the word ‘enron’, and *spam* indicates that an e-mail is classified as spam. (0.5 point)
+
+```{r q6}
+# Construct a new variable that indicates whether a *text.mail* 
+# includes the string ‘prescription’ (1 = includes spam)
+dfEnronMails_lc$prescr <- ifelse(grepl("prescription", 
+                                       dfEnronMails_lc$text.mail),"1", "0")
+
+# Construct a new variable that indicates whether a *text.mail* 
+# includes the string ‘enron’ (1 = includes spam)
+dfEnronMails_lc$enron <- ifelse(grepl("enron", 
+                                      dfEnronMails_lc$text.mail),"1", "0")
+
+# Count number of emails which are classified as spam
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1",])
+
+# Count number of emails which are classified as spam and 
+# contain the string 'prescription'
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$prescr == "1" ,])
+
+# Count number of emails which are classified as spam and 
+# contain the string 'enron'
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$enron == "1" ,])
+
+```
+
+The following numbers are needed to calculate the conditional probability distributions *P(prescription|spam)* and *P(enron|spam)*.
+
+- 1388 out of 4768 e-mails are marked as spam
+- 109 out of 1388 e-mails marked as spam contain the word 'prescription'
+- 0 out of 1388 e-mails marked as spam contain the word 'enron'
+
+Conditional probability:
+$P(prescription|spam) = 109/1388 = 0.0785$ 
+$P(enron|spam) = 0/1388 = 0$
+
+
+## Question 7
+According to the Naive Bayes model, what is the probability that an email containing the word ‘prescription’, but not the word ‘enron’, is spam? What is the probability that an email containing the word ‘enron’, but not the word ‘prescription’, is spam? Show all of your calculation steps. You can assume strict independence in your calculations. (2 points)
+
+```{r q7}
+# 1st Calculation
+
+# Count number of emails which contain the word 'prescription' and 
+# does not contain the word 'enron' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$enron == "0" &
+                       dfEnronMails_lc$prescr == "1",])
+
+
+
+# Count number of emails which are classified as spam, 
+# contains the word 'prescription' and does not contain the word 'enron' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$prescr == "1" &
+                       dfEnronMails_lc$enron == "0",])
+
+# 2nd calculation:
+
+# Count number of emails which contain the word 'enron' and 
+# does not contain the word 'prescription' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$enron == "1" &
+                       dfEnronMails_lc$prescr == "0",])
+
+# Count number of emails which are classified as spam, 
+# contains the word 'enron' and does not contain the word 'prescription' 
+nrow(dfEnronMails_lc[dfEnronMails_lc$spam == "1" & 
+                       dfEnronMails_lc$enron == "1" &
+                       dfEnronMails_lc$prescr == "0",])
+
+```
+
+The following numbers are needed to calculate the probabilities:
+- 1388 out of 4768 e-mails are marked as spam (see question 6)
+
+- 110 out of 4768 e-mails contain the word 'prescription' and does not contain the word 'enron'
+- 1370 out of 4768 e-mails contain the word 'enron' and does not contain the word 'prescription'
+
+- 109 out of 1388 e-mails marked as spam contain the word 'prescription' and does not contain the word 'enron'
+- 0 out of 1388 e-mails marked as spam contain the word 'enron' and does not contain the word 'prescription'
+
+Strict independence formula:
+$P(class|evidence) = (P(evidence|class) / P(evidence)) * P(class)$ 
+
+**1. The probability that an email containing the word ‘prescription’, but not the word ‘enron’, is spam = 0.9892**
+
+Step 1.1 'define class and evidence':
+- Class = spam
+- Evidence = contains the word 'prescription' but not the word 'enron'
+
+Step 1.2 'calculate the parts':
+$P(evidence|class) = P(prescription.and.not.enron|spam) = 109/1388 = 0.0785$
+$P(evidence) = P(prescription.and.not.enron) = 110/4768 = 0.0231$
+$P(class) = P(spam) = 1388/4768 = 0.2911$
+
+Step 1.3 'fill in the parts to calculate the whole':
+$P(class|evidence) = P(spam|prescription.and.not.enron) =$
+$(0.0785/0.0231)*0.2911 = 0.9892$
+
+**2. The probability that an email contains the word ‘enron’, but not the word ‘prescription’, is spam = 0**
+
+Step 2.1 'define class and evidence':
+- Class = spam
+- Evidence = contains the word 'enron' but not the word 'prescription'
+
+Step 2.2 'calculate the parts':
+$P(evidence|class) = P(enron.and.not.prescription|spam) = 0/1388 = 0$
+$P(evidence) = P(enron.and.not.prescription) = 1370/4768 = 0.2873$
+$P(class) = P(spam) = 1388/4768 = 0.2911$
+
+Step 2.3 'fill in the parts to calculate the whole':
+$P(class|evidence) = P(spam|enron.and.not.prescription) =$
+$(0/0.2873)*0.2911 = 0$
+
+
+## Question 8
+Create five separate variables that indicate whether the text of an e-mail includes the words ‘enron’, ‘subject’, ‘please’, ‘farmer’, and ‘daren’, some of the most common words in normal e-mails at Enron, and five other variables that indicate whether the text of an e-mail contains the words ‘prescription’, ‘com’, ‘money’, ‘free’, and ‘viagra’, some of the most common words in spam messages. 
+Do a co-occurrence analysis using the *arules* and *arulesViz* packages in R for spam and non-spam messages separately. Output the learned rules and plot the scatter plot of confidence, the grouped plot, and the graph plot. Interpret the results. (Hint: Before using the *apriori* command you have to convert your data frame into an object of class *transactions* using the command *as(. . . , transactions)*). (2 points)
+
+```{r q8 spam}
+# Create five separate variables that indicate whether the text of an e-mail
+# includes the words ‘enron’, ‘subject’, ‘please’, ‘farmer’, and ‘daren’
+# Note: A variable for 'enron' was already created in Q6
+dfEnronMails_lc$subject <- ifelse(grepl("subject",
+                                        dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$please <- ifelse(grepl("please",
+                                       dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$farmer <- ifelse(grepl("farmer",
+                                       dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$daren <- ifelse(grepl("daren",
+                                      dfEnronMails_lc$text.mail),"1", "0")
+
+
+# Create five other variables that indicate whether the text of an e-mail
+# contains the words ‘prescription’, ‘com’, ‘money’, ‘free’, and ‘viagra’
+# Note: A variable for 'prescription' was already created in Q6
+dfEnronMails_lc$com <- ifelse(grepl("com",
+                                    dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$money <- ifelse(grepl("money",
+                                      dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$free <- ifelse(grepl("free",
+                                     dfEnronMails_lc$text.mail),"1", "0")
+dfEnronMails_lc$viagra <- ifelse(grepl("viagra",
+                                       dfEnronMails_lc$text.mail),"1", "0")
+
+# Data set preparation: remove redundant columns
+dfMailsQ8 <- dfEnronMails_lc[,3:13]
+
+# Dataset preparation: create dataset for spam messages 
+# and delete 'spam' variable
+dfMailsQ8_spam <- subset(dfMailsQ8, spam == "1")
+dfSpamQ8 <- dfMailsQ8_spam[,2:11]
+
+# Dataset preparation: create dataset for non-spam messages
+# and delete 'spam' variable
+dfMailsQ8_nonspam <- subset(dfMailsQ8, spam == "0")
+dfNonSpamQ8 <- dfMailsQ8_nonspam[,2:11]
+
+# Dataset preparation: convert data frames into class transactions
+trSpamQ8 <- as(dfSpamQ8, "transactions")
+trNonSpamQ8 <- as(dfNonSpamQ8, "transactions")
+
+# Step 1.1: Perform a co-occurrence analysis for spam messages 
+myRulesSpamQ8 <- apriori(trSpamQ8,
+                         parameter = list(support=0.01, confidence=0.1,
+                                          minlen=2, maxlen = 3,
+                                          target="rules"))
+
+# Step 1.2: Output the learned rules 
+summary(myRulesSpamQ8)
+inspect(head(sort(myRulesSpamQ8, by ="lift"),8))
+
+# Step 1.3: Plot the scatter plot of confidence, the grouped plot, 
+# and the graph plot
+plot(myRulesSpamQ8, cex=1)
+plot(myRulesSpamQ8, method = "grouped")
+subRulesSpamQ8 <- head(sort(myRulesSpamQ8, by = "lift"), 15)
+plot(subRulesSpamQ8, method = "graph")
+
+
+# Step 2.1: Perform a co-occurrence analysis for non-spam messages
+myRulesNonSpamQ8 <- apriori(trNonSpamQ8,
+                            parameter = list(support=0.01, confidence=0.1,
+                                             minlen=2, maxlen = 3,
+                                             target="rules"))
+
+# Step 2.2: Output the learned rules 
+summary(myRulesNonSpamQ8)
+inspect(head(sort(myRulesNonSpamQ8, by ="lift"),8))
+
+# Step 2.3: Plot the scatter plot of confidence, the grouped plot, 
+# and the graph plot
+plot(myRulesNonSpamQ8, cex=1)
+plot(myRulesNonSpamQ8, method = "grouped")
+subRulesNonSpamQ8 <- head(sort(myRulesNonSpamQ8, by = "lift"), 15)
+plot(subRulesNonSpamQ8, method = "graph")
+
+```
+
+The support means the frequency to which a certain co-occurence occurs in the whole dataset, the lift entails the extent to which the evidence/ rule updates the prior belief and the confidence illustrates how informative the left part of the rule (lhs column) is for the right part of the rule (rhs column).
+
+
+**Interpretation spam analysis**
+
+- The output of the spam rules show that the first two rules have the highest lift with a lift above 7. For instance, according to the first rule this means that the probability that the word 'viagra' will occur given that the words 'prescription' and 'com' are present is 8.3 times higher than the probability of the words occuring independent from each other.
+- These first two rules have a support of 0.0223, which means that the combination occurs in 2.23% of all spam emails. The same support level which also signals that the combinations occur equally. This is common-sense, since the first two rules contain the same three words: 'prescription', 'com' and 'viagra'.
+- Furthermore, the support shows that only three unique combinations are included in the first 8 rules sorted by lift, since there are only three unique support levels. These combinations contain the words (1) 'prescription', 'com' and 'viagra'; (2) 'prescription' and 'viagra' without the word 'free'; (3) 'prescription' and 'viagra' without the word 'farmer' or 'daren'. This shows that the words 'viagra' and 'prescription' have a high relatively high value for the spam filter based on the first eight rules sorted by lift.
+- Lastly, the confidence shows that given the words 'viagra' and 'com' occur, the word 'prescription' will occur (rule 2) in 55% of spam e-mails.
+
+- We would prefer rules with a high confidence and support (upper right corner of the scatter plot), but the scatter plot shows that these rules do not have a high lift. Furthermore, the scatter plot confirms that the rules with a high lift have a, on average, relatively high confidence level but a low support level.
+- The grouped matrix could inform us graphically about the support and lift level of new rules, but this grouped matrix is impossible to interpret since there are too many rules. This makes the plot too small to derive meaningful insights.
+- The graph plot shows how different words are connected to each other based on their support and lift level. The most meaningful insight from this plot is that the words 'viagra' and 'prescription' are at the center of almost every combination. This confirms the conclusion that these two words are very valuable for a spam filter.
+
+
+**Interpretation non-spam analysis**
+
+- The output of the non-spam rules show that the first three rules have the highest lift with a lift above 4. For instance, according to the first rule this means that the probability that the word 'farmer' will occur given that the words 'enron' and 'daren' are present is 4.5 times higher than the probability of the words occuring independent from each other.
+- From these first three rules, the aforementioned example of the first rule, occurs the most (highest support) with 12% of all non-spam e-mails. However, the 7th rule (probability that the word 'daren' will occur given that the word 'farmer' occurs and the word 'free' does not occur) occus slightly more often in 15% of all non-spam cases from the first eight rules sorted by lift.
+- The confidence shows that given the word 'farmer' occurs and the word 'com' does not occur, the word 'daren' will occur (rule 4) in 97% of non-spam cases. Furthermore, seven out of the 8 rules (sorted by lift) have a confidence over 80%. This confidence level is relatively high. 
+
+- We would prefer rules with a high confidence and support (upper right corner of the scatter plot), but the scatter plot shows that these rules do not have a high lift. Furthermore, the scatter plot confirms that the rules with a high lift have a moderate confidence level and low support.
+- The grouped matrix could inform us graphically about the support and lift level of new rules, but this grouped matrix is impossible to interpret since there are too many rules. This makes the plot too small to derive meaningful insights.
+- The graph plot shows how different words are connected to each other based on their support and lift level. The most meaningful insight from this plot is that the words 'farmer' and 'daren' are at the center of almost every combination. Furthermore, the words 'com' and 'enron' seem to cause a higher lift level when they are combined with the words 'farmer' and 'daren'. This confirms our conclusion from the analysis of the eight rules with the highest lift.
