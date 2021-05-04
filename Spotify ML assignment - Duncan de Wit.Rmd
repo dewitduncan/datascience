@@ -1,0 +1,538 @@
+---
+title: "Assignment 3"
+author: "Duncan de Wit"
+date: "2020.04.21 09:00 AM"
+output:
+  pdf_document:
+    keep_tex: true
+header-includes:
+   - \usepackage{dcolumn}    
+---
+\newpage
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, include = FALSE}
+remove(list=ls())
+cat("\f")
+
+library(openxlsx)
+library(data.table)
+library(psych)
+library(stargazer)
+library(plyr)
+library(randomForest)
+library(MASS)
+
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(class)  
+library(ROCR)
+library(cluster)
+library(ape)
+library(rpart)
+library(rpart.plot)
+library(mclust)
+
+library(eRic)
+library(varhandle)
+
+dir <- "C:/Users/Julie/Documents/02. BIM/BDBA/Assignment 3/"
+dirData <- paste0(dir, "Data/")
+dirRslt <- paste0(dir, "Results/")
+dirProg <- paste0(dir, "Programs/")
+
+setwd(dir)
+```
+## Question 1
+
+Load and examine the dataset *SpotifyTop10s.csv* on *Canvas*. Run *k*-means clustering with 2, 3 and 4 clusters and each time examine using cluster plots the overlap between clusters. Explain what looks likely to be a good choice for the number of clusters. (1 point)
+
+```{r q1a, results = 'hide'}
+set.seed(123)
+# Load the data and delete the first row with the variable 'X' (Row ID)
+dfSpotify10Raw <- read.csv(paste0(dirData, "SpotifyTop10s.csv"),
+                           row.names = 1,
+                           stringsAsFactors = FALSE)
+
+# Inspect the data
+head(dfSpotify10Raw)
+tail(dfSpotify10Raw)
+summary(dfSpotify10Raw)
+str(dfSpotify10Raw)
+colSums(is.na(dfSpotify10Raw))
+
+# Data preparation: delete duplicate entries based on song title
+dfSpotify10RawV1 <- dfSpotify10Raw[!duplicated(dfSpotify10Raw$title), ]
+
+# Data preparation: delete 'Million Years Ago' by Adele 
+# since it has a value of 0 on a lot of variables (bpm, nrgy, dnce, live etc.)
+dfSpotify10RawV2 <- dfSpotify10RawV1[dfSpotify10RawV1$bpm > 1,]
+
+# Data preparation: Some songs seem to have unrealistically high BPM. 
+# After inspection and online search it seems that songs with a BPM of
+# 178 and above have doubled. Therefore, half BPM of songs with BPM of
+# 178 and above (conditional replacement of values in a data frame)
+dfSpotify10RawV3 <- transform(dfSpotify10RawV2, 
+                              bpm = ifelse(bpm >= 178, bpm/2, bpm))
+
+# Convert last alteration to clean data frame and delete versions of raw data
+dfSpotify10Clean <- dfSpotify10RawV3
+remove(dfSpotify10RawV1, dfSpotify10RawV2, dfSpotify10RawV3)
+
+# Scale data of all integer variables used for analysis 
+# (excluding year and popularity)
+dfSpotify10ScalNum <- as.data.frame(scale(dfSpotify10Clean[5:13]))
+dfSpotify10Scaled <- cbind(dfSpotify10Clean[1:4], dfSpotify10ScalNum)
+
+```
+```{r q1b}
+set.seed(123)
+# Run k-means clustering with 2 clusters and 
+# examine using cluster plots the overlap between clusters
+rsltKmeansQ1.2  <- kmeans(dfSpotify10ScalNum, 2)
+clusplot(dfSpotify10ScalNum, rsltKmeansQ1.2$cluster, color=TRUE, shade=TRUE, 
+         labels=2, lines=0)
+
+# Run k-means clustering with 3 clusters and 
+# examine using Clusterplots the overlap between clusters
+rsltKmeansQ1.3  <- kmeans(dfSpotify10ScalNum, 3)
+clusplot(dfSpotify10ScalNum, rsltKmeansQ1.3$cluster, color=TRUE, shade=TRUE, 
+         labels=2, lines=0)
+
+# Run k-means clustering with 4 clusters and 
+# examine using Clusterplots the overlap between clusters
+rsltKmeansQ1.4  <- kmeans(dfSpotify10ScalNum, 4)
+clusplot(dfSpotify10ScalNum, rsltKmeansQ1.4$cluster, color=TRUE, shade=TRUE, 
+         labels=2, lines=0)
+
+```
+After inspecting the data, we can conclude that there are no values missing, but some observations contain mistakes which may cause problems. Therefore, the duplicate entries are deleted based on the song title. These are songs which were popular in two years, but this might make the song overrepresented in our data analysis. Secondly, a song with several values of 0 is deleted. Thirdly, it seems that songs with a BPM of 178 and higher are doubled compared to the actual value if you compare it to information on the internet. Therefore, all songs with a BPM of 178 and higher are halved. 
+
+Furthermore, we see that the variables *title*, *artist* and *top.genre* are of the type character and the other variables are integers. We will analyze the variables which describe the songs' sonic characteristics, so therefore the variables *title*, *artist*, *top.genre*, *year* and *pop* will not be used in the analysis. The mean and standard deviation differ for every other numeric variable and therefore we will scale all numeric variables which are used in the analysis.
+
+After examining the cluster plots of k-means clustering with 2, 3 and 4 clusters, we can conclude that 2 clusters looks to be a good choice since visual inspection of the plots shows us that a cluster plot with 2 clusters has the least overlap in clusters. However, the cluster plots are difficult to interpret since all observations are very close to each other based on the two chosen principal components. Therefore, I assume that other methods like using a classification tree or descriptive statistics could provide more information since it visualizes more than two dimensions of the clusters. Furthermore, the cluster plot of 2 clusters shows that the two components explain 43.8% of the point variability. This is the same for cluster plots with 3 and 4 clusters.
+
+\newpage
+## Question 2
+
+Write a *for* loop that runs ten times *k*-means clustering with 1 to 10 clusters. Each time, save the total within-cluster sum of squares. Make a plot showing the number of clusters against the total within-cluster sum of squares and explain whether the plot indicates an optimal number of clusters using the Elbow method. (1 point)
+
+```{r q2}
+set.seed(123)
+# Calculating the total within-cluster sum of squares (WSS)
+WSSQ2 <- numeric(10)
+
+for(i in 1:10){
+  WSSQ2[i] <- kmeans(dfSpotify10ScalNum, i)$tot.withinss  
+}
+
+# Create table and plot  
+tableQ2 <- cbind(Number.of.Clusters=1:10, WSSQ2)
+plot(tableQ2, type="l", xlab = "Number of clusters", 
+     ylab = "Total WSS", main = "Scree-like Plot")
+
+```
+The elbow method entails that the point where additional clusters only slightly decrease the within cluster variation (WSS) indicates the number of clusters. This is visualized by the point where the plot shows a sharp bend (which looks like an elbow).
+In this case, using the scaled data, the plot is downward sloping without a clear bend. This makes the choice somewhat ambigous and therefore we conclude that the plot does not clearly indicate an optimal number of clusters using the Elbow method.
+
+\newpage
+## Question 3 (see note)
+
+Run *k*-means clustering with three clusters and assign a cluster to each song. Explore the clusters using the techniques and plots from the lecture. Come up with a meaningful name for each cluster that characterizes the songs in each cluster, e.g. ‘fast dance songs’ or ‘slow acoustic songs’. Identify per cluster a representative song, listen to each song on *Youtube* or *Spotify* and describe how your impression of listening to the songs matches the results of your cluster analysis. (2 points)
+
+**Note:** I encounter some problems regarding this question, since the clusters keep switching and therefore the means and decision tree changes everytime I knit the document. This makes it hard to include and describe the right songs in the right cluster.
+
+```{r q3}
+set.seed(123)
+# To answer this question we can use the results of k-means clustering
+# with three clusters of Question 1. 
+rsltKmeansQ1.3 <- kmeans(dfSpotify10ScalNum, 3)
+
+# Make a descriptive  summary  per  assigned cluster
+tmpQ3 <- describeBy(dfSpotify10ScalNum, group = rsltKmeansQ1.3$cluster)
+
+```
+``` {r q3 table, results='asis'}
+set.seed(123)
+# Visualize the mean and standard deviation of every cluster in a table
+stargazer(cbind(tmpQ3$'1'[3:4], tmpQ3$'2'[3:4], tmpQ3$'3'[3:4]),
+          align = TRUE , no.space = TRUE , summary = FALSE)
+
+```
+```{r q3c}
+set.seed(123)
+# Define model for tree classification
+mdlQ3     <- rsltKmeansQ1.3$cluster ~ .
+
+# Train  the  tree
+treeQ3  <- rpart(mdlQ3, data = dfSpotify10ScalNum, method = "class", 
+                 parms = list(split = "information"))
+
+# Plot  the  decision  tree
+rpart.plot(treeQ3, box.col=rainbow (10)[treeQ3$frame$yval], 
+           extra = 104)
+
+```
+As expected from the cluster plot, we can conclude there is overlap between clusters. This is also shown by the relatively high standard deviation in Table 1 and the overlap between clusters in the classification tree. Nevertheless, we will classify the clusters based on the most common denominator. 
+
+Cluster 2 is characterized by a higher mean for energy, danceability and loudness as can be seen in Table 1. This also applies to most of the songs in cluster 2 according to the classification tree. Therefore, we will name cluster 2 'Energetic dance songs'. 
+Cluster 3 is characterized by low mean values for valence (positive mood), energy and loudness. On the other hand, it has a high mean value for acousticness as can also be seen in the classification tree. Therefore, we will name cluster 3 'Slow acoustic songs'.
+Cluster 1 is characterized by a high score for liveness (live recording) and speechiness. Therefore, we will name cluster 1 'Wordy live songs'.
+
+A representative song per cluster is close to the mean value of the most distinctive variables of the cluster. 
+
+```{r q3d}
+set.seed(123)
+# Create data frame for every cluster
+cluster1Q3 <- dfSpotify10ScalNum[rsltKmeansQ1.3$cluster == 1, ]
+cluster2Q3 <- dfSpotify10ScalNum[rsltKmeansQ1.3$cluster == 2, ]
+cluster3Q3 <- dfSpotify10ScalNum[rsltKmeansQ1.3$cluster == 3, ]
+
+# Subset every cluster according to the mean of most distinctive variables
+repSongsCl1 <- cluster1Q3[(cluster1Q3$dnce > -.50) & (cluster1Q3$dnce < -0.10)
+                          & (cluster1Q3$dB > -.60) & (cluster1Q3$dB < -.20)
+                          & (cluster1Q3$acous > -0.45)
+                          & (cluster1Q3$acous < -0.05), 
+                          ]
+repSongsCl1
+repSongsCl2 <- cluster2Q3[(cluster2Q3$nrgy > 0.3) & (cluster2Q3$nrgy < 0.8) 
+                          & (cluster2Q3$dnce > 0.1) & (cluster2Q3$dnce < 0.6)
+                          & (cluster2Q3$dB > 0.2) & (cluster2Q3$dB < 0.7),
+                          ]
+repSongsCl2
+repSongsCl3 <- cluster3Q3[(cluster3Q3$val < -0.7) & (cluster3Q3$val > -1.3)
+                          & (cluster3Q3$acous > 2.2)
+                          & (cluster3Q3$acous < 2.8), 
+                          ]
+repSongsCl3
+```
+
+This results in one representative song for every cluster: 
+
+- The representative song for Cluster 1 'Wordy live songs' is *"G-Eazy - Him & I"* (id 531). My first impression is that this song is a hip hop song with a guitars and drums, but with a chorus where a woman sings. The verses are slow-paced with rap, but the chorus has a faster pace and is easier to move/ dance to. I find it difficult to decide if this song matches the results of the cluster analysis. However, the song does contain a lot of lyrics and has live drums and guitars. Lastly, the song would definitely not belong to the other clusters, so this cluster fits best. 
+
+- The representative song for Cluster 2 'Energetic dance songs' is *"Charlie Puth - We don't talk anymore (Droeloe remix)"* (id 496). The song has a very clear Electronic Dance Music (EDM) genre. There are a lot of synthesizers and a build-up with an energetic drop which makes you want to dance and move. This matches the results of the cluster analysis, since the analysis shows high scores for energy, danceability and loudness. The song is very energetic, danceable, loud and although the songs transcends a positive mood the lyrics are about missing your ex. Therefore, I would not score this song high on valence, but it matches the mean of the cluster.
+
+- The representative song for Cluster 3 'Slow acoustic songs' is *"Shawn Mendes - Don't be a fool"* (id 412). My impression of this song is that it is very acoustic, since it mostly guitars and piano playing. Furthermore, it is pretty slow-paced and he sings about breaking up. This matches the results of the cluster analysis, since the analysis shows high scores for acousticness and low scores for valence. A low score for valence matches the lyrics about breaking up.
+
+
+## Question 4
+
+Run model-based clustering. How many clusters does the algorithm suggest? Cross-tabulate the cluster memberships from the model-based and the *k*-means clustering with four clusters. Also, calculate the Adjusted Rand Index. Discuss whether we have a good or bad agreement of the two cluster solutions. (1 point)
+
+```{r q4}
+set.seed(123)
+# Apply Mclust function in order to find cluster solutions
+rsltMclusScaledQ4  <- Mclust(dfSpotify10ScalNum)
+
+# Result: the optimal number of clusters is 6 and mixture model is VVE
+# based on the Bayesian Information Criterion (BIC)
+summary(rsltMclusScaledQ4)
+summary(rsltMclusScaledQ4$BIC) # The second option was VVE with 5 clusters
+
+# Use k-means clustering result with four clusters of Q1
+rsltKmeansQ1.4  <- kmeans(dfSpotify10ScalNum, 4)
+
+# Cross-tabulate the cluster memberships from the model-based 
+# and the *k*-means clustering with four clusters
+table(kMeansClassification = rsltKmeansQ1.4$cluster, 
+      ModelBasedClassification = rsltMclusScaledQ4$classification)
+
+# Calculate the Adjusted Rand Index
+adjustedRandIndex(rsltKmeansQ1.4$cluster, rsltMclusScaledQ4$classification)
+
+```
+
+The model suggests 6 clusters based on the Bayesian Information Criterion (BIC). This makes it difficult to compare 4 clusters with 6 clusters. 
+The table shows that the first class of the k-means classification and model-based classification have 0 similarities while the fifth class of model-based classification has 45 similarities with the first class of k-means classification. Therefore, we can assume that those classes have the same characteristics (and name).  There are only 6 mixed classifications in the first class of the k-means classification and even 0 mixed classifications in the third class of the k-means classification. However, the second and fourth class of the k-means classification are divided over all classes of the model-based classification.
+
+The Adjusted Rand Index is close to 13% which is relatively low and indicates an overall bad agreement of the two cluster solutions. The third and fourth classes of the k-means classification are divided over all classes of the model-based classification, despite the first two classes of the k-means classification showing similarities with the model-based classification. 
+
+
+## Question 5
+
+Your goal in the following exercises is to predict whether a song is likely to be an international hit based on the nine variables of its sonic characteristics. An international hit is defined as a song that is popular in more than one country or region of the world. Create a new variable that counts in how many countries and regions a particular song was popular. Examine the distribution of this new variable. (1 point)
+
+```{r q5, results='hide'}
+set.seed(123)
+# Load the data and delete the first row with the variable 'X' (Row ID)
+df.Spotify50Raw <- read.csv(paste0(dirData, "SpotifyTop50country.csv"),
+                           row.names = 1,
+                           stringsAsFactors = FALSE)
+
+# Inspect the data
+head(df.Spotify50Raw)
+tail(df.Spotify50Raw)
+summary(df.Spotify50Raw)
+str(df.Spotify50Raw)
+colSums(is.na(df.Spotify50Raw))
+
+# Data preparation: Some songs seem to have unrealistically high BPM. 
+# After inspection and online search it seems that songs with a BPM of
+# 176 and above have doubled. Therefore, half BPM of songs with BPM of
+# 176 and above (conditional replacement of values in a data frame)
+df.Spotify50RawV1 <- transform(df.Spotify50Raw, 
+                              bpm = ifelse(bpm >= 176, bpm/2, bpm))
+
+# Data preparation: delete 'Lamborghini (From "Jai Mummy Di")' 
+# by Meet Bros. (id: 372)
+# since it has a value of 0 on a lot of variables (bpm, nrgy, dnce, live etc.)
+which(is.na(df.Spotify50RawV1$nrgy))
+df.Spotify50RawV2 <- df.Spotify50RawV1[-c(372), ]
+
+# Convert last alteration to clean data frame and delete versions of raw data
+df.Spotify50Clean <- df.Spotify50RawV2
+remove(df.Spotify50RawV1, df.Spotify50RawV2)
+
+# Create a new variable that counts in how many countries and regions 
+# a particular song was popular
+df.Spotify50Clean$int_hit <- rowSums(!is.na(df.Spotify50Clean[-(1:12)]))
+
+```
+```{r q5b}
+set.seed(123)
+# Examine the distribution of this new variable
+ggplot(df.Spotify50Clean, aes(x=int_hit)) + 
+  geom_histogram(binwidth=1, colour="black", fill="blue") +  
+  labs(title="Number of countries in which a song was a hit", y="",
+       x="Number of countries")
+```
+
+Inspection of the data shows that some song titles are html codes. This is probably because the characters are Hebrew since all these songs were popular in Israel. These songs will remain in the data set since it will not influence the result. Furthermore, it seems that the BPM of songs with a BPM of 176 and higher are doubled once more. Therefore, we will halve the BPM of all songs with a BPM of 176 and higher. Thirdly, the song 'Lamborghini (From "Jai Mummy Di")' by Meet Bros. (id: 372) has missing values for the sonic characteristics of the song. Therefore, this observation is deleted.
+
+The new variable *count* shows us that a big majority of the songs is only a hit in one country and therefore does not qualify as an international hit. Furthermore, several songs where a hit in 2 or 5 countries or regions, but only very few songs where a hit in more than 5 countries or regions.
+
+
+## Question 6 (see note)
+
+Use a logit model, a random forest model and a K-nearest neighbors algorithm to predict whether a song is likely to be an international hit based on its nine sonic characteristics. Use 5-fold cross-validation to determine how good each model performs in terms of accuracy. Also compute the accuracy of a "model" that always predicts that a song will not be a hit. 
+For each of the four models explore a confusion matrix using the data from one of the splits generated in the cross-validation excessive. 
+Explain whether accuracy is a good measure of performance in this particular case and whether one of the three alternative measures (*specificity*, *sensitivity* or *precision*) might be a better measure. (1 point)
+
+**Note:** I encounter some problems regarding this question, since the values in the confusion matrix and mean accuracy change everytime I knit the document. This makes it hard to include the right numbers and calculations in the text.
+
+```{r q6a}
+set.seed(123)
+# Convert numeric into binomial
+df.Spotify50Clean$int_hit <- factor(as.numeric(df.Spotify50Clean$int_hit>1),
+                          levels = c(0, 1))
+
+# Delete variables which are not used for the analysis
+df.Spotify50Clean[1:3] <- list(NULL)
+df.Spotify50Clean[10:28] <- list(NULL) 
+
+# Scaling  the  numeric (num and int) variables
+colTypes <- sapply(df.Spotify50Clean, class)
+colNumeric <- which(colTypes  == "numeric" | colTypes  == "integer")
+
+# Scale  the  quantitative  data  columns and add target variable 'int_hit' 
+df.Spotify50ScalNum <- as.data.frame(scale(df.Spotify50Clean[, colNumeric]))
+df.Spotify50Scaled <- cbind(df.Spotify50Clean[10], df.Spotify50ScalNum)
+
+# Randomly create 5 folds
+df.Spotify50Scaled <- df.Spotify50Scaled[sample(1:nrow(df.Spotify50Scaled)),]
+nFolds <- 5
+myFolds <- cut(seq(1, nrow(df.Spotify50Scaled)), 
+               breaks = nFolds, 
+               labels=FALSE)
+table(myFolds)
+
+# Initialize empty vectors to collect results
+accLogit <- rep(NA, nFolds)
+accRF <- rep(NA, nFolds)
+accKNN <- rep(NA, nFolds)
+accFalse <- rep(NA, nFolds)
+
+# Define the model 
+mdlQ6 <- int_hit ~ .
+
+for (i in 1:nFolds) {
+  cat("Analysis of fold", i, "\n")
+  
+  # Define training and test set
+  testObsQ6  <- which(myFolds == i, arr.ind = TRUE)
+  dsTestQ6 <- df.Spotify50Scaled[testObsQ6, ]
+  dsTrainQ6  <- df.Spotify50Scaled[-testObsQ6, ]
+  
+  # Train the models on the training sets
+  rsltLogit <- glm(mdlQ6, data = dsTrainQ6, family = "binomial")
+  m <- round(sqrt((length(all.vars(mdlQ6)) - 1)))
+  rsltRF <- randomForest(mdlQ6, data = dsTrainQ6, ntree = 100, mtry = m, 
+                       importance = TRUE)
+  
+  # Predict values for the test sets
+  predLogit <- predict(rsltLogit, dsTestQ6, type = "response")
+  classLogit <- factor(as.numeric(predLogit > 0.5), levels = c(0, 1))
+  classRF <- predict(rsltRF, dsTestQ6, type = "class")
+  predKNN <- knn(dsTrainQ6, dsTestQ6, dsTrainQ6$int_hit, k = 5)
+  predFalse <- 0
+  
+  # Measure accuracy and store the results
+  accLogit[i] <- mean(classLogit == dsTestQ6$int_hit)
+  accRF[i] <- mean(classRF == dsTestQ6$int_hit)
+  accKNN[i] <- mean(predKNN  ==  dsTestQ6$int_hit)
+  accFalse[i] <- mean(predFalse == dsTestQ6$int_hit)
+}
+
+# Combine the accuracies obtained with the classifiers in a single matrix
+accRslt <- cbind(accLogit, accRF, accKNN, accFalse)
+  
+# Summarise the accuracies per technique 
+describe(accRslt)
+
+```
+
+The accuracy for the logit model is 76%, random forest model is 77%, K-nearest neighbours algorithm is 87% and 'false model' which always predicts no international hit is 77%. This shows that the accuracy performance metric does not give a complete picture of the predictive power of the models and therefore is not a good measure of performance. Music artists, producers and record labels are interested in a model which scores high on predicting wether a song becomes an international hit and not which songs will not become an international hit. This would mean that it wants to predict the positive cases and therefore it is important to calculate the 'True Positive Rate' which is also known as *sensitivity*.
+
+$Sensitivity = True Positives / (True Positives + False Negatives)$
+
+If we look at the confusion matrix for all models, we find the following values:
+
+```{r q6b}
+set.seed(123)
+# For each of the four models explore a confusion matrix using the data 
+# from the last split generated in the cross-validation
+tblLogit <- table(Predictions = classLogit, Observed = dsTestQ6$int_hit)
+tblLogit
+tblRF <- table(Predictions = classRF, Observed = dsTestQ6$int_hit)
+tblRF
+tblKNN <- table(Predictions = predKNN, Observed = dsTestQ6$int_hit)
+tblKNN
+
+# Create a data frame with 107 observations (equal to last split) first,
+# convert numeric into binomial and convert integer to numeric
+predFalse107 <- data.frame(pred=0, a=1:107)
+tblFalse <- table(Predictions = predFalse107$pred, 
+                  Observed = dsTestQ6$int_hit)
+tblFalse
+
+```
+
+With these values we can calculate the following *specificity* scores for the last fold in the cross validation:
+
+$Logit.sensitivity = 1 / (1 + 20) = 1/21 =$ 4.76%
+$RF.sensitivity = 1 / (1 + 20) = 1/21 =$  4.76%
+$KNN.sensitivity = 7 / (7 + 14) = 1/3 =$ 33.33%
+$False.sensitivity = 0/ (0 + 21) = 0 =$ 0%
+
+This shows that the K-nearest neighbours algorithm is actually much better at predicting positive cases (international hits) than the other models based on the last split of the cross validation.
+
+
+## Question 7 (see note)
+
+Plot the ROC curve for the logit and the random forest model and compare their performance based on the plot. Also compute the area below the ROC curve in both cases. Using the data from one of the previously generated splits into training and test set from the cross-validation exercise. (1 point)
+
+**Note:** I also encounter some problems regarding this question, since the plot of the ROC curve and values of the AUC change everytime I knit the document. This makes it hard to include the right numbers and calculations in the text.
+
+```{r q7}
+set.seed(123)
+# Step 1: Build  model on the (scaled) training  data
+rsltLogit  <- glm(mdlQ6, data=dsTrainQ6, family="binomial")
+rsltRFQ7 <- randomForest(mdlQ6, data=dsTrainQ6, ntree=100,
+                         importance=TRUE)
+
+# Step 2: Collect class probabilities  for the test set
+predLogit  <- predict(rsltLogit, dsTestQ6, type="response")   
+classRFQ7 <- predict(rsltRFQ7, dsTestQ6, type = "prob")
+
+
+# Step 3:  Prepare  for  making  performance  measures
+prd.Logit  <- prediction(predLogit, dsTestQ6$int_hit)
+prd.RF  <- prediction(classRFQ7[,2], dsTestQ6$int_hit)
+
+# Step 4: Make  classification  performance  measures
+prf.Logit  <- performance(prd.Logit, measure = "tpr", x.measure = "fpr")
+prf.RF  <- performance(prd.RF, measure = "tpr", x.measure = "fpr")
+
+# Step 5a: Make the ROC plot for the logit model
+plot(prf.Logit, lty=1, lwd=2.0, col=rainbow(5)[1]) +
+abline(a=0, b=1, lty=3, lwd=1.5)
+
+# Step 5: Make the ROC plot for the random forest model
+plot(prf.RF, lty=1, lwd=2.0, col=rainbow(5)[1]) +
+abline(a=0, b=1, lty=3, lwd=1.5)
+
+# Step 6a: Compute the area below the ROC curve of the logit model
+performance(prd.Logit, measure="auc")@y.values
+
+# Step 6b: Compute the area below the ROC curve of the random forest model
+performance(prd.RF, measure="auc")@y.values
+ 
+
+```
+
+The ROC curve shows for which threshold the model scores best. The higher the threshold (closer to one), the more difficult it will be to have positive class predictions, the larger will be the share of false negatives. We would prefer a high true positive rate and a low false positive rate, so the most optimal ROC curve should be nearest to the upper left corner. 
+
+The ROC curve for the logit model is above the split line except for the last port of the curve. Furthermore, the ROC curve of the logit model tends to rise towards the upper left corner at the start, but around a FP-rate of 0.25 flattens and remains close to the split line. The ROC curve for the random forest model is completely above the split, but the ROC curve is very close to the split line during the whole curve. The ROC curve for the random forest model is closer to the split line (further away from the upper left corner) than the ROC curve for the logit model and therefore the logit model seems to perform better based on the ROC curve. 
+This is confirmed by the Area Under the Curve (AUC) score for the logit model of 63.62% compared to an AUC score of 58.31% for the random forest model. The AUC measures the total area under the ROC curve. The AUC is between 0.5 and 1. The more the curve tends to the upper left corner, the closer to 1. This would mean a high true positive rate at a given low false positive rate, which is desirable. The low AUC scores (closer to 0.5 than to 1) for both models show the limited performance of both models.
+
+
+## Question 8 (see note)
+
+Imagine you are a data scientist working for a record company. You are given the task to develop an algorithm that helps the company to decide whether a song that is being proposed by an artist is likely to be an international hit (as  previously  defined) and is thus worthy of being produced by the record company. Assume that an international hit generates revenues of €1,300,000 for the record company while producing and distributing a song costs €500,000. A song that is not an international hit does not generate any revenues but still costs €500,000 if the company has decided to produce and distribute the song. 
+
+Set up a function that computes the expected value for the record company for a given probability threshold using the predicted probabilities from a model and the numbers for revenues and costs given above. Use a random forest model that takes as before the nine sonic characteristics of a song as attributes to predict the probability for a song to become an international hit. Estimate the random forest on the first three hundred songs in the dataset as a training set and use the remaining songs and the function that computes the expected value per song to determine the optimal probability threshold such that the expected value for the record company is maximized. What is the optimal probability threshold and how much is the expected profit per song given this threshold? (2 points)
+
+**Note:** Lastly, I also encounter some problems regarding this question, since the values in the confusion matrix and optimal threshold change everytime I knit the document. This makes it hard to include the right numbers and calculations in the text.
+I already notified the professor about this problem in the Lecture Q&A, but please inform me about a solution in the comments of TurnItIn if you know how to solve this.
+
+```{r q8}
+set.seed(123)
+# Step 0: Define the model
+mdlQ8 <- int_hit ~ .
+
+# Step 1: Define the test and training set (scaling is not needed for RF)
+# Randomization is not specified in the question and therefore not included
+dsTrainQ8 <- df.Spotify50Clean[1:300,]
+dsTestQ8 <- df.Spotify50Clean[301:532,]
+
+# Step 2: Build model on the training data
+rsltRFQ8 <- randomForest(mdlQ8, data=dsTrainQ8, ntree=100,
+                         importance=TRUE)
+
+# Step 3: Collect class probabilities for the test set
+classRFQ8 <- predict(rsltRFQ8, dsTestQ8, type = "prob")
+
+# Step 4: Calculate threshold and EV
+# Design matrix with the costs and revenues for the expected value 
+crMatrix <- matrix(c(0, 0, -500000, 800000), nrow = 2)
+# matrix cells: [r(TN), c(FN), c(FP), r(TP)]
+# true negatives and false negatives yield no benefit or costs, 
+# false positives cost -€500,000 and true positives yield €800,000
+
+# The target variable int_hit has to be numeric for 'evThreshold' command
+dsTestQ8Num <- unfactor(dsTestQ8)
+
+# Installed external 'eRic' package from Github which computes best threshold
+# based on EV and metrics with 'evThreshold' command
+res <- evThreshold(dsTestQ8Num$int_hit, classRFQ8[,2], crMatrix)
+res$plot.metrics
+res$best.threshold
+
+# Step 5: Make confusion table with absolute numbers and optimal threshold
+k <- 1 - res$best.threshold
+ClassRFQ8Optimal <- predict(rsltRFQ8, dsTestQ8, type = "class",
+                            cutoff = c(k,1-k))
+tblRFQ8 <- table(Predictions = ClassRFQ8Optimal, Observed = dsTestQ8$int_hit)
+tblRFQ8
+
+```
+
+The provided information tells us that the following monetary consequences are related to predictive performance:
+
+$True Positive = €1,300,000 - €500,000 = €800,000$ 
+
+$False Positive = €0 - €500,000 = -€500,000$ 
+
+$True Negative = €0$ 
+
+$False Negative = €0$ in actual costs, but -€800,000 in opportunity costs. However, pportunity costs will not be taken into consideration.
+
+The optimal probability threshold is 0.8314945 based on this random forest model. The confusion matrix shows that there is 1 true positive and 0 false positives, so therefore 1 song will be released. This results in a total expected value of €800,000 and also an average expected profit per song of €800,000.
